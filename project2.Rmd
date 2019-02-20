@@ -1,0 +1,495 @@
+---
+title: "Feature Selection for text clustering"
+author: "Navanith Rayavarapu & Karthik Gampala"
+date: "November 5, 2018"
+output: 
+        html_document:
+                number_sections: true
+                toc: true
+                fig_width: 7
+                fig_height: 4.5
+                theme: readable
+                highlight: tango
+---
+
+# Introduction  
+
+This is the Data Mining Course project at  **Indian Institute of Information Technology, SRICITY, Chittoor**. The project is about comparing the various feature selection techniques(Supervised and Un-Supervied) for text clustering. The dataset is the subset of RCV1. These corpus has already been used in author identification experiments. In the top 50 authors (with respect to total size of articles) were selected. 50 authors of texts labeled with at least one subtopic of the class CCAT(corporate/industrial) were selected.That way, it is attempted to minimize the topic factor in distinguishing among the texts. The training corpus consists of 2,500 texts (50 per author) and the test corpus includes other 2,500 texts (50 per author) non-overlapping with the training text.  
+
+## loading required Libraries  
+
+The library **dplyr** is useful for Data manipulation.  
+The libraries **tm & qdap** are useful for text mining.  
+The library **flexclust** is useful for predicting the test data set for clustering models.  
+The library **wordcloud & SnowballC** are useful for visualising the text datasets.  
+The library **FSelector** is useful for feature selection techniques.  
+
+```{r warning = FALSE, message = FALSE}
+filepath <- c("F:/Data Mining/project/")
+setwd(filepath)
+library(tidyverse)
+library(dplyr)
+library(tm)
+library(qdap)
+library(wordcloud)
+library(SnowballC)
+library(flexclust)
+library(FSelector)
+library(rpart)
+```
+
+# Importing the datasets  
+
+## train Data set  
+The train data set contains 50 author files where each file contains 50 documents. But we're working with first 4 authors only. such that the corpus contains **200** documents in train data set.
+
+```{r warning = FALSE, message = FALSE}
+
+#list all files from C50train directory 
+author_train.files <- list.files(path = c("c50train/"), pattern = NULL, all.files = T, full.names = T, ignore.case = T, include.dirs = F)
+
+# printing the list of files
+#author_train.files
+
+# Creating train Corpus
+# The first four files are empty files so that we're taking from 5:8 files only
+corpusAuthor_train <- VCorpus(DirSource(author_train.files[5:8]), 
+    readerControl = list(reader = readPlain))
+
+length(corpusAuthor_train)
+
+meta(corpusAuthor_train[[1]])
+#corpusAuthor_train[[1]][1]
+```
+
+## test Data set  
+
+simillar as trian data set we need only first 4 authors.  
+
+```{r warning = FALSE, message = FALSE}
+#list all files from C50train directory 
+author_test.files <- list.files(path = c("C50test"), pattern = NULL, all.files = T, full.names = T, ignore.case = T, include.dirs = F)
+
+# printing the list of files
+#author_test.files
+
+# Creating test Corpus
+# The first two files are empty files so that we're taking from 3:6 files only
+corpusAuthor_test <- VCorpus(DirSource(author_test.files[3:6]), 
+    readerControl = list(reader = readPlain))
+
+length(corpusAuthor_test)
+class(corpusAuthor_test)
+
+meta(corpusAuthor_test[[1]])
+#corpusAuthor_test[[1]][1]
+```
+# Joining Train and Test datasets  
+
+train and test data sets are joined such that the no of terms ( or attributes ) will be same after preprocessing.  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_total <- c(corpusAuthor_train, corpusAuthor_test)
+class(corpusAuthor_total)
+```
+
+# Preprocessing the dataset  
+
+## cleaning the data set  
+
+we need to remove stopwords, numbers, punctuation etc .., to get the good model.  
+
+```{r warning = FALSE, message = FALSE}
+# stopwords
+myStopwords <- stopwords(c("english"))
+
+corpusAuthor_total <- tm_map(corpusAuthor_total, content_transformer(tolower))
+corpusAuthor_total <- tm_map(corpusAuthor_total, removeNumbers)
+corpusAuthor_total <- tm_map(corpusAuthor_total, removeWords, myStopwords)
+corpusAuthor_total <- tm_map(corpusAuthor_total, stripWhitespace)
+corpusAuthor_total <- tm_map(corpusAuthor_total, removePunctuation)
+corpusAuthor_total <- tm_map(corpusAuthor_total, stemDocument)
+
+# Converrting corpus to Document term matrix 
+corpusAuthor_total_dtm <- DocumentTermMatrix(corpusAuthor_total, control=list(wordLengths=c(3,Inf)))
+View(corpusAuthor_total_dtm)
+
+corpusAuthor_total_dtm <- removeSparseTerms(corpusAuthor_total_dtm, sparse = 0.952)
+dim(corpusAuthor_total_dtm)
+class(corpusAuthor_total_dtm)
+#paste0("After cleaning the data set we get", dim, "terms only", collapse = " ")
+inspect(corpusAuthor_total_dtm)
+
+```
+## getting train and test from the preprocessed data  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_train_dtm <- corpusAuthor_total_dtm[1:200,]
+corpusAuthor_test_dtm <- corpusAuthor_total_dtm[201:400, ]
+```
+
+# Visulaising the datasets  
+## train data set  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_train_m <- as.matrix(corpusAuthor_train_dtm)
+View(corpusAuthor_train_m)
+dim(corpusAuthor_train_dtm)
+transform(colSums(inspect(corpusAuthor_train_dtm) >= 1))
+train_terms <- colSums(corpusAuthor_train_m)
+train_terms <- sort(train_terms, decreasing = TRUE)
+png("trainWordHist.png")
+barplot(train_terms[1:30], las = 2, col = "tan")
+Dev.off()
+term_vec <- names(train_terms)
+
+png("trainWordCloud.png")
+wordcloud(term_vec, train_terms, max.words = 500, colors = "red")
+Dev.off()
+
+```
+
+## test data set  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_test_m <- as.matrix(corpusAuthor_test_dtm)
+test_terms <- colSums(corpusAuthor_test_m)
+test_terms <- sort(test_terms, decreasing = TRUE)
+head(test_terms)
+png("testWordHist.png")
+barplot(test_terms[1:30], las = 2, col = "tan")
+Dev.off()
+term_vec <- names(test_terms)
+png("testWordCloud.png")
+wordcloud(term_vec, test_terms, max.words = 500, colors = "red")
+dev.off()
+```
+
+```{r warningn = FALSE, message = FALSE}
+set.seed(253)
+
+#corpusAuthor_train_m[1:6, 1:6]
+corpusAuthor_train_df <- as.data.frame(corpusAuthor_train_m)
+
+head(colnames(corpusAuthor_train_df))
+class((rownames(corpusAuthor_train_df)))
+#km <- kmeans(corpusAuthor_train_df, 4, iter.max = 10)
+km <- kcca(corpusAuthor_train_df, k=4, kccaFamily("kmeans"))
+#str(km)
+corpusAuthor_train_df$cluster <- km@cluster
+head(corpusAuthor_train_df$cluster)
+corpusAuthor_train_df$documentname <- rownames(corpusAuthor_train_df)
+#head(corpusAuthor_train_df$documentname)
+corpusAuthor_train_df$AuthorName <- rep(author_train.files[5:8], each = 50)
+#head(corpusAuthor_train_df$AuthorName)
+#str(km)
+#class(km)
+
+g <- ggplot(corpusAuthor_train_df, aes(x = cluster, y = AuthorName)) + geom_point()
+#g
+New_df <- corpusAuthor_train_df %>% group_by(cluster) %>% summarise( label = names(which.max(table(AuthorName))), max = max(table(AuthorName)) )
+nlevels(as.factor(New_df$label))
+#View(New_df$label)
+dim(New_df)
+sum(New_df$max)
+#colnames(New_df)
+#View(table(km$cluster, corpusAuthor_train_df$AuthorName))
+View(New_df)
+```
+# Predict test data clusters  
+
+```{r warning = FALSE, message - FALSE}
+corpusAuthor_test_m[1:6, 1:6]
+corpusAuthor_test_df <- as.data.frame(corpusAuthor_test_m)
+head(colnames(corpusAuthor_test_df))
+class((rownames(corpusAuthor_test_df)))
+pred_train <- predict(km)
+pred_test <- predict(km, corpusAuthor_test_df)
+class(pred_test)
+head(pred_test)
+pred_test[1:3]
+#corpusAuthor_test_df$test_clusters <- clusters(corpusAuthor_test_df, km[["centers"]])
+corpusAuthor_test_df$test_clusters <- pred_test
+corpusAuthor_test_df$Authorname_predicted <- New_df$label[corpusAuthor_test_df$test_clusters]
+head(corpusAuthor_test_df$Authorname_predicted)
+corpusAuthor_test_df$Authorname <- rep(author_train.files[5:8], each = 50)
+head(corpusAuthor_test_df$Authorname)
+sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE)
+View(table(corpusAuthor_test_df$Authorname_predicted,corpusAuthor_test_df$Authorname))
+```
+
+# Feature Slection Techniques  
+
+## SUpervised Techniques  
+
+### Information gain technique.  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_train_df <- as.data.frame(corpusAuthor_train_m)
+head(colnames(corpusAuthor_train_df))
+class((rownames(corpusAuthor_train_df)))
+corpusAuthor_train_df$AuthorName <- rep(author_train.files[5:8], each = 50)
+weights <- information.gain(AuthorName ~ ., corpusAuthor_train_df)
+#train_accuracy <- 1:30
+test_accuracy <- sapply(seq(10, 500, by = 3), function(i){
+        subset1 <- cutoff.k(weights, i)
+        set.seed(253)
+        km <- kcca(corpusAuthor_train_df[,subset1], k=4, kccaFamily("kmeans"))
+        corpusAuthor_train_df$cluster <- km@cluster
+        New_df <- corpusAuthor_train_df %>% group_by(cluster) %>% summarise( label =   names(which.max(table(AuthorName))), max = max(table(AuthorName)) )
+        sum(New_df$max)
+        pred_train <- predict(km)
+        pred_test <- predict(km, corpusAuthor_test_df[,subset1])
+        corpusAuthor_test_df$test_clusters <- pred_test
+        corpusAuthor_test_df$Authorname_predicted <- New_df$label[corpusAuthor_test_df$test_clusters]
+        return(sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE))
+        
+}
+        
+)
+
+#length(subset1)
+#test_accuracy
+accuracy.df <- data.frame(seq(10, 500, by = 3), test_accuracy)
+names(accuracy.df) <- c("number_terms", "test_accuracy_InformationGain")
+accuracy.df$test_accuracy_InformationGain <- accuracy.df$test_accuracy_InformationGain / 200
+head(accuracy.df)
+
+table1.df <- data.frame("IG", max(accuracy.df$test_accuracy_InformationGain))
+names(table1.df) <- c("FeatureSelection", "TestAccuracy")
+g <- ggplot(accuracy.df, aes(x = number_terms, y = test_accuracy_InformationGain)) +
+        geom_line() +
+        geom_vline(aes(xintercept = accuracy.df$number_terms[which.max(accuracy.df$test_accuracy_InformationGain)], col = "red")) +
+        labs(title = "Information Gain ") +
+        scale_x_continuous(breaks=c(0,5,accuracy.df$number_terms[which.max(accuracy.df$test_accuracy_InformationGain)],50,100,150,200, 300, 400, 500))
+png("Information_Gain.png")        
+g
+dev.off()
+#ggsave(filename="Information Gain.jpeg", plot=g)
+
+
+```
+
+### chi square technique  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_train_df <- as.data.frame(corpusAuthor_train_m)
+head(colnames(corpusAuthor_train_df))
+class((rownames(corpusAuthor_train_df)))
+corpusAuthor_train_df$AuthorName <- rep(author_train.files[5:8], each = 50)
+weights2 <- chi.squared(AuthorName ~ ., corpusAuthor_train_df)
+corpusAuthor_test_df <- as.data.frame(corpusAuthor_test_m)
+corpusAuthor_test_df$Authorname <- rep(author_train.files[5:8], each = 50)
+#subset2 <- cutoff.k(weights, 20)
+#set.seed(255)
+
+
+test_accuracy1 <- sapply(seq(10, 500, by = 5), function(i){
+        subset2 <- cutoff.k(weights2, i)
+        set.seed(255)
+        km <- kcca(corpusAuthor_train_df[,subset2], k=4, kccaFamily("kmeans"))
+        corpusAuthor_train_df$cluster <- km@cluster
+        New_df <- corpusAuthor_train_df %>% group_by(cluster) %>% summarise( label =   names(which.max(table(AuthorName))), max = max(table(AuthorName)) )
+        sum(New_df$max)
+        pred_train <- predict(km)
+        pred_test <- predict(km, corpusAuthor_test_df[,subset2])
+        corpusAuthor_test_df$test_clusters <- pred_test
+        corpusAuthor_test_df$Authorname_predicted <- New_df$label[corpusAuthor_test_df$test_clusters]
+        return(sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE))
+        
+}
+)
+
+#length(subset1)
+#test_accuracy1
+
+accuracy1.df <- data.frame(seq(10, 500, by = 5), test_accuracy1)
+names(accuracy1.df) <- c("number_terms", "test_accuracy_chisquare")
+accuracy1.df$test_accuracy_chisquare <- accuracy1.df$test_accuracy_chisquare / 200
+head(accuracy1.df)
+#rbind(table1.df, c("CHI", max(accuracy1.df$test_accuracy_chisquare)))
+table2.df <- data.frame("CHI", max(accuracy1.df$test_accuracy_chisquare))
+names(table2.df) <- c("FeatureSelection", "TestAccuracy")
+table.df <- rbind(table1.df, table2.df)
+#table2.df$FeatureSelection <-"CHI"
+#table2.df$TestAccuracy <- max(accuracy1.df$test_accuracy_chisquare)
+g <- ggplot(accuracy1.df, aes(x = number_terms, y = test_accuracy_chisquare)) +
+        geom_line() +
+        geom_vline(aes(xintercept = accuracy1.df$number_terms[which.max(accuracy1.df$test_accuracy_chisquare)], col = "red")) +
+        labs(title = "Chisquare statistic") + 
+        scale_x_continuous(breaks=c(0,5,accuracy1.df$number_terms[which.max(accuracy1.df$test_accuracy_chisquare)],50,100,150,200, 300, 400, 500))
+
+head(table.df)
+        
+png("Chisquare.png")        
+g
+dev.off()        
+
+```
+
+### Random Forest  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_train_df <- as.data.frame(corpusAuthor_train_m)
+head(colnames(corpusAuthor_train_df))
+class((rownames(corpusAuthor_train_df)))
+corpusAuthor_train_df$AuthorName <- rep(author_train.files[5:8], each = 50)
+colnames(corpusAuthor_train_df) <- paste(colnames(corpusAuthor_train_df), "_c", sep = "")
+corpusAuthor_test_df <- as.data.frame(corpusAuthor_test_m)
+colnames(corpusAuthor_test_df) <- paste(colnames(corpusAuthor_test_df), "_c", sep = "")
+corpusAuthor_test_df$Authorname_c <- rep(author_train.files[5:8], each = 50)
+weights3 <- random.forest.importance(AuthorName_c ~ ., corpusAuthor_train_df, importance.type = 1)
+
+test_accuracy3 <- sapply(seq(10, 500, by = 3), function(i){
+        subset3 <- cutoff.k(weights3, i)
+        set.seed(255)
+        km <- kcca(corpusAuthor_train_df[,subset3], k=4, kccaFamily("kmeans"))
+        corpusAuthor_train_df$cluster <- km@cluster
+        New_df <- corpusAuthor_train_df %>% group_by(cluster) %>% summarise( label =   names(which.max(table(AuthorName_c))), max = max(table(AuthorName_c)) )
+        sum(New_df$max)
+        pred_train <- predict(km)
+        pred_test <- predict(km, corpusAuthor_test_df[,subset3])
+        corpusAuthor_test_df$test_clusters <- pred_test
+        corpusAuthor_test_df$Authorname_predicted <- New_df$label[corpusAuthor_test_df$test_clusters]
+        return(sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname_c, na.rm = TRUE))
+        
+}
+        
+)
+
+#length(subset1)
+#test_accuracy1
+
+accuracy3.df <- data.frame(seq(10, 500, by = 3), test_accuracy3)
+names(accuracy3.df) <- c("number_terms", "test_accuracy_randomForest")
+accuracy3.df$test_accuracy_randomForest <- accuracy3.df$test_accuracy_randomForest / 200
+head(accuracy3.df)
+table3.df <- data.frame("RF", max(accuracy3.df$test_accuracy_randomForest))
+names(table3.df) <- c("FeatureSelection", "TestAccuracy")
+table.df <- rbind(table.df, table3.df)
+#table.df$FeatureSelection <- "RandomForest"
+#table.df$TestAccuracy <- max(accuracy3.df$test_accuracy_randomForest)
+g <- ggplot(accuracy3.df, aes(x = number_terms, y = test_accuracy_randomForest)) +
+        geom_line() +
+        geom_vline(aes(xintercept = accuracy3.df$number_terms[which.max(accuracy3.df$test_accuracy_randomForest)], col = "red")) +
+        labs(title = "Random FOrest") +
+        scale_x_continuous(breaks=c(0,10,accuracy3.df$number_terms[which.max(accuracy3.df$test_accuracy_randomForest)],60,100,150,200, 300, 400, 500))
+        
+head(table.df)
+png("randomForest.png")        
+g
+dev.off()
+
+```
+
+
+
+### cfs  
+
+```{r warning = FALSE, message = FALSE}
+corpusAuthor_train_df <- as.data.frame(corpusAuthor_train_m)
+head(colnames(corpusAuthor_train_df))
+class((rownames(corpusAuthor_train_df)))
+corpusAuthor_train_df$AuthorName <- rep(author_train.files[5:8], each = 50)
+subset4 <- cfs(AuthorName ~ ., corpusAuthor_train_df)
+length(subset4)
+#subset4 <- cutoff.k(weights, 20)
+set.seed(255)
+km <- kcca(corpusAuthor_train_df[,subset4], k=4, kccaFamily("kmeans"))
+corpusAuthor_train_df$cluster <- km@cluster
+New_df <- corpusAuthor_train_df %>% group_by(cluster) %>% summarise( label = names(which.max(table(AuthorName))), max = max(table(AuthorName)) )
+nlevels(as.factor(New_df$label))
+dim(New_df)
+sum(New_df$max)
+View(New_df)
+subset4
+```
+
+```{r warning = FALSE, message = FALSE}
+pred_train <- predict(km)
+pred_test <- predict(km, corpusAuthor_test_df[,subset4])
+class(pred_test)
+head(pred_test)
+pred_test[1:3]
+corpusAuthor_test_df$test_clusters <- pred_test
+corpusAuthor_test_df$Authorname_predicted <- New_df$label[corpusAuthor_test_df$test_clusters]
+head(corpusAuthor_test_df$Authorname_predicted)
+head(corpusAuthor_test_df$Authorname)
+sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE)
+View(table(corpusAuthor_test_df$Authorname_predicted, corpusAuthor_test_df$Authorname))
+table4.df <- data.frame("CFS",  sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE) / 200)
+names(table4.df) <- c("FeatureSelection", "TestAccuracy")
+table.df <- rbind(table.df, table4.df)
+#table.df$FeatureSelection <- "CFS"
+#table.df$TestAccuracy <- sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE) / 200
+head(table.df)
+```
+## Unsupervised Learning  
+
+
+
+### Document Frequency  
+
+```{r warning = FALSE, message = FALSE}
+Df <- colSums(corpusAuthor_train_m != 0)
+Df <- sort(Df, decreasing = TRUE)
+corpusAuthor_train_df <- as.data.frame(corpusAuthor_train_m)
+head(colnames(corpusAuthor_train_df))
+class((rownames(corpusAuthor_train_df)))
+corpusAuthor_train_df$AuthorName <- rep(author_train.files[5:8], each = 50)
+weights2 <- chi.squared(AuthorName ~ ., corpusAuthor_train_df)
+corpusAuthor_test_df <- as.data.frame(corpusAuthor_test_m)
+corpusAuthor_test_df$Authorname <- rep(author_train.files[5:8], each = 50)
+
+test_accuracy4 <- sapply(seq(10, 500, by = 3), function(i){
+        subset4 <- head(names(Df), i)
+        set.seed(256)
+        km <- kcca(corpusAuthor_train_df[,subset4], k=4, kccaFamily("kmeans"))
+        corpusAuthor_train_df$cluster <- km@cluster
+        New_df <- corpusAuthor_train_df %>% group_by(cluster) %>% summarise( label =   names(which.max(table(AuthorName))), max = max(table(AuthorName)) )
+        sum(New_df$max)
+        pred_train <- predict(km)
+        pred_test <- predict(km, corpusAuthor_test_df[,subset4])
+        corpusAuthor_test_df$test_clusters <- pred_test
+        corpusAuthor_test_df$Authorname_predicted <- New_df$label[corpusAuthor_test_df$test_clusters]
+        return(sum(corpusAuthor_test_df$Authorname_predicted == corpusAuthor_test_df$Authorname, na.rm = TRUE))
+        
+}
+)
+
+accuracy4.df <- data.frame(seq(10, 500, by = 3), test_accuracy4)
+names(accuracy4.df) <- c("number_terms", "test_accuracy_DocumentFrequency")
+accuracy4.df$test_accuracy_DocumentFrequency <- accuracy4.df$test_accuracy_DocumentFrequency / 200
+head(accuracy4.df)
+table5.df <- data.frame("DF", max(accuracy4.df$test_accuracy_DocumentFrequency))
+names(table5.df) <- c("FeatureSelection", "TestAccuracy")
+table.df <- rbind(table.df, table5.df)
+#table.df$FeatureSelection <- "DF"
+#table.df$TestAccuracy <- max(accuracy4.df$test_accuracy_DocumentFrequency)
+g <- ggplot(accuracy4.df, aes(x = number_terms, y = test_accuracy_DocumentFrequency)) +
+        geom_line() +
+        geom_vline(aes(xintercept = accuracy4.df$number_terms[which.max(accuracy4.df$test_accuracy_DocumentFrequency)], col = "red")) +
+        labs(title = "Document Frequency") +
+        scale_x_continuous(breaks=c(0,10,50,100,150,200, accuracy4.df$number_terms[which.max(accuracy4.df$test_accuracy_DocumentFrequency)], 300, 400, 500))
+
+        #geom_text()
+head(table.df)
+png("DocumentFrequency.png")        
+g
+dev.off()
+```
+
+# Results  
+
+```{r warning = FALSE, message = FALSE}
+head(table.df,6)
+
+View(table.df)
+g1 <- ggplot(table.df, aes(x = FeatureSelection, y = TestAccuracy)) +
+        geom_point()
+g1
+png("result.png")
+g1
+dev.off()
+```
+
